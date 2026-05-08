@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 
 # hyperparameters
 input_file = "./dataset/dataset.csv"
+judge_file = "./dataset/judge.csv"
 num_rounds = 100
 n_classes = 7
 
@@ -46,10 +47,7 @@ def load_data(input_file, transformer):
 
 
 
-def training_adaboost(X_train, y_train, num_rounds):
-    global weak_learners
-    global alphas
-
+def training_adaboost(X_train, y_train, num_rounds, weak_learners=[], alphas=[]):
     print("Training AdaBoost with SAMME...")
 
     # initialize the weights for the training examples
@@ -84,35 +82,43 @@ def training_adaboost(X_train, y_train, num_rounds):
 
 
 
-def testing_adaboost(X_test, y_test, weak_learners, alphas):
+def testing_adaboost(weak_learners, alphas, X, y=None):
     global n_classes
 
     print("Testing AdaBoost...")
 
-    n_samples = len(X_test)
-    test_accuracies = []
+    # get the number of samples
+    n_samples = len(X)
 
     # matrix for results of each model
-    final_predictions = np.zeros((n_samples, n_classes))
+    weak_learner_predictions = np.zeros((n_samples, n_classes))
+    # list of model accuracies for each round
+    test_accuracies = []
     
     # loop through weak learners to build the matrix
     for alpha, model in zip(alphas, weak_learners):
-        y_pred = model.predict(X_test)
+        y_pred = model.predict(X)
         # numpy to the rescue again
         rows_i = np.arange(n_samples)
-        final_predictions[rows_i, y_pred - 1] += alpha
+        weak_learner_predictions[rows_i, y_pred - 1] += alpha
         # also calculate the accuracy for this round
-        if y_test is not None:
-            test_accuracies.append(accuracy_score(y_test, y_pred))
+        if y is not None:
+            test_accuracies.append(accuracy_score(y, y_pred))
 
     # get the final predicted class for each test example
-    final_predictions = np.argmax(final_predictions, axis=1) + 1
+    final_predictions = np.argmax(weak_learner_predictions, axis=1) + 1
 
-    final_accuracy = accuracy_score(y_test, final_predictions)
-    return final_accuracy, test_accuracies
+    # if we have the true labels, calculate the final accuracy, otherwise just return the predictions
+    if y is not None:
+        final_accuracy = accuracy_score(y, final_predictions)
+        return final_accuracy, test_accuracies 
+    else:
+        # this is bad practice to have a function return two different types of output, but it will work for our purposes
+        return final_predictions
 
 
-def base_model(X_train, y_train, X_test, y_test):
+
+def base_model_predictions(X_train, y_train, X_test, y_test):
     # fit model
     model = LogisticRegression(multi_class="multinomial", solver="lbfgs", max_iter=1000)
     model.fit(X_train, y_train)
@@ -132,17 +138,37 @@ def plot_metrics(train_accuracies, test_accuracies, base_train_accuracy, base_te
     global num_rounds
 
     plt.figure(figsize=(10, 6))
-    plt.plot(range(1, num_rounds + 1), train_accuracies, label='AdaBoost Train Acc')
-    plt.plot(range(1, num_rounds + 1), test_accuracies, label='AdaBoost Test Acc')
-    plt.axhline(y=base_test_accuracy, color='r', linestyle='--', label='Baseline (Single LR) Test Acc')
-    plt.axhline(y=base_train_accuracy, color='g', linestyle='--', label='Baseline (Single LR) Train Acc')
-    plt.axhline(y=final_accuracy, color='b', linestyle='--', label='AdaBoost Final Acc')
-    plt.xlabel('Number of Rounds')
+    plt.plot(range(1, num_rounds + 1), train_accuracies, label='Weak Learners Train Accuracy')
+    plt.plot(range(1, num_rounds + 1), test_accuracies,  label='Weak Learners Test Accuracy')
+    plt.axhline(y=base_test_accuracy, color='r', linestyle='--',  label='Baseline (Logistic Regressioon) Test Accuracy')
+    plt.axhline(y=base_train_accuracy, color='g', linestyle='--', label='Baseline (Logistic Regressioon) Train Accuracy')
+    plt.axhline(y=final_accuracy, color='b', linestyle='--', label='AdaBoost Ensemble Final Accuracy')
+    plt.xlabel('Rounds')
     plt.ylabel('Accuracy')
     plt.title('AdaBoost Accuracy vs. Number of Rounds')
     plt.legend()
     plt.savefig('results.png')
     plt.show()
+
+
+
+def predict_judge_data(transformer, weak_learners, alphas):
+    global judge_file
+
+    # load data from the csv
+    df = pd.read_csv(judge_file, index_col=0)
+    # transform the data
+    X = transformer.transform(df)
+
+    # get predictions from the model
+    y_pred = testing_adaboost(weak_learners, alphas, X)
+
+    # save the predictions to a csv
+    output_df = pd.DataFrame({"Id": df.index, "Cover_Type": y_pred})
+    output_df.to_csv("judge_predictions.csv")
+
+    return output_df
+
 
 
 
@@ -155,18 +181,18 @@ def main():
     # load the data
     X_train, X_test, y_train, y_test, transformer = load_data(input_file, transformer)
 
-    # a list of the weak learners and their corresponding alphasl
-    weak_learners = []
-    alphas = []
-    # metrics is going to be a list of tuples: ("accuracy", "precision", "recall", "f1_score")
-
     # Task 1: train the model
     weak_learners, alphas, train_accuracies = training_adaboost(X_train, y_train, num_rounds)
     # test the model
-    final_accuracy, test_accuracies = testing_adaboost(X_test, y_test, weak_learners, alphas)
+    final_accuracy, test_accuracies = testing_adaboost(weak_learners, alphas, X_test, y_test)
 
     # Task 2: train and test the base model
     base_train_accuracy, base_test_accuracy = base_model(X_train, y_train, X_test, y_test)
 
     # Task 3: plot the training and testing accuracy over time
     plot_metrics(train_accuracies, test_accuracies, base_train_accuracy, base_test_accuracy, final_accuracy)
+
+    # Task 4
+
+    # Task 5: Predict on the judge dataset
+    predict_judge_data(transformer, weak_learners, alphas)
