@@ -187,7 +187,7 @@ def main():
     final_accuracy, test_accuracies = testing_adaboost(weak_learners, alphas, X_test, y_test)
 
     # Task 2: train and test the base model
-    base_train_accuracy, base_test_accuracy = base_model(X_train, y_train, X_test, y_test)
+    base_train_accuracy, base_test_accuracy = base_model_predictions(X_train, y_train, X_test, y_test)
 
     # Task 3: plot the training and testing accuracy over time
     plot_metrics(train_accuracies, test_accuracies, base_train_accuracy, base_test_accuracy, final_accuracy)
