@@ -16,10 +16,11 @@ input_file = "./dataset/dataset.csv"
 judge_file = "./dataset/judge.csv"
 num_rounds = 100
 n_classes = 7
+lr_max_iter = 1000
 
 
 
-# the transformer we'll use
+# columns we need to scale
 numeric_features = ['Elevation', 'Aspect', 'Slope', 'Horizontal_Distance_To_Hydrology', 
                     'Vertical_Distance_To_Hydrology', 'Horizontal_Distance_To_Roadways', 
                     'Hillshade_9am', 'Hillshade_Noon', 'Hillshade_3pm', 
@@ -29,20 +30,21 @@ numeric_features = ['Elevation', 'Aspect', 'Slope', 'Horizontal_Distance_To_Hydr
 
 
 def load_data(input_file, transformer):    
-    # load the data
     print("Loading data...")
+
+    # load data from the csv
     df = pd.read_csv(input_file, index_col=0)
     X = df.drop("Cover_Type", axis=1)
     Y = df["Cover_Type"]
-
-    # scale the numeric features
-    print("Scaling numeric features...")
     # split the data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, Y, train_size=0.8, random_state=1234)
-    # transform the training and testing data
+
+    print("Scaling numeric features...")
+    # fit the transformer on the training dataand then transform the training and testing data
     transformer.fit(X_train)
     X_train = transformer.transform(X_train)
     X_test = transformer.transform(X_test)
+
     return X_train, X_test, y_train, y_test, transformer
 
 
@@ -59,7 +61,7 @@ def training_adaboost(X_train, y_train, num_rounds, weak_learners=[], alphas=[])
     # train the weak learners
     for i in range(num_rounds):
         # train the current weak learner
-        model = LogisticRegression(multi_class="multinomial", solver="lbfgs", max_iter=1000)
+        model = LogisticRegression(solver="lbfgs", max_iter=lr_max_iter)
         model.fit(X_train, y_train, sample_weight=weights)
 
         # calculate the error and alpha for the current weak learner
@@ -84,7 +86,6 @@ def training_adaboost(X_train, y_train, num_rounds, weak_learners=[], alphas=[])
 
 def testing_adaboost(weak_learners, alphas, X, y=None):
     global n_classes
-
     print("Testing AdaBoost...")
 
     # get the number of samples
@@ -119,8 +120,10 @@ def testing_adaboost(weak_learners, alphas, X, y=None):
 
 
 def base_model_predictions(X_train, y_train, X_test, y_test):
+    print("Training and testing baseline model...")
+
     # fit model
-    model = LogisticRegression(multi_class="multinomial", solver="lbfgs", max_iter=1000)
+    model = LogisticRegression(solver="lbfgs", max_iter=lr_max_iter)
     model.fit(X_train, y_train)
 
     # predict on training and testing data
@@ -136,6 +139,7 @@ def base_model_predictions(X_train, y_train, X_test, y_test):
 
 def plot_metrics(train_accuracies, test_accuracies, base_train_accuracy, base_test_accuracy, final_accuracy):
     global num_rounds
+    print("Plotting metrics...")
 
     plt.figure(figsize=(10, 6))
     plt.plot(range(1, num_rounds + 1), train_accuracies, label='Weak Learners Train Accuracy')
@@ -154,6 +158,7 @@ def plot_metrics(train_accuracies, test_accuracies, base_train_accuracy, base_te
 
 def predict_judge_data(transformer, weak_learners, alphas):
     global judge_file
+    print("Predicting on judge dataset...")
 
     # load data from the csv
     df = pd.read_csv(judge_file, index_col=0)
@@ -196,3 +201,11 @@ def main():
 
     # Task 5: Predict on the judge dataset
     predict_judge_data(transformer, weak_learners, alphas)
+
+    print("Done!")
+
+
+
+
+if __name__ == "__main__":
+    main()
