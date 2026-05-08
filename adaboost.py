@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+# Mark Evers
+# 5/7/2026
+# CSCI 4930 - Machine Learning
+# Homework 5 - AdaBoost
+
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -13,7 +18,7 @@ import matplotlib.pyplot as plt
 
 # hyperparameters
 input_file = "./dataset/dataset.csv"
-judge_file = "./dataset/judge.csv"
+judge_file = "./dataset/judge-no-labels.csv"
 num_rounds = 100
 n_classes = 7
 lr_max_iter = 1000
@@ -56,17 +61,17 @@ def training_adaboost(X_train, y_train, num_rounds, weak_learners=[], alphas=[])
     weights = np.array([1/len(X_train)] * len(X_train))
 
     # for plotting the training and testing accuracy over time
-    train_accuracies = []
+    individual_train_accuracies = []
 
     # train the weak learners
     for i in range(num_rounds):
-        # train the current weak learner
-        model = LogisticRegression(solver="lbfgs", max_iter=lr_max_iter)
+        # train the current weak learner and get its predictions on the training data
+        model = LogisticRegression(solver="lbfgs", max_iter=lr_max_iter, C=np.inf)
         model.fit(X_train, y_train, sample_weight=weights)
+        y_pred = model.predict(X_train)
 
         # calculate the error and alpha for the current weak learner
-        y_pred = model.predict(X_train)
-        # instead of looping, let's use numpy functions.  y_pred != y_train will be zeros where the prediction is correct and ones where it's incorrect.  Then we can multiply by the weights and sum to get the total error.
+        # instead of looping, let's use a numpy mask
         error = np.sum(weights * (y_pred != y_train)) / np.sum(weights)
         alpha = np.log((1 - error) / error) + np.log(n_classes - 1)
         # update the weights for the next round
@@ -78,13 +83,13 @@ def training_adaboost(X_train, y_train, num_rounds, weak_learners=[], alphas=[])
         alphas.append(alpha)
 
         # calculate the training accuracy for this round
-        train_accuracies.append(accuracy_score(y_train, y_pred))
+        individual_train_accuracies.append(accuracy_score(y_train, y_pred))
 
-    return weak_learners, alphas, train_accuracies
+    return weak_learners, alphas, individual_train_accuracies
 
 
 
-def testing_adaboost(weak_learners, alphas, X, y=None):
+def testing_adaboost(weak_learners, alphas, X, y_true=None):
     global n_classes
     print("Testing AdaBoost...")
 
@@ -94,7 +99,8 @@ def testing_adaboost(weak_learners, alphas, X, y=None):
     # matrix for results of each model
     weak_learner_predictions = np.zeros((n_samples, n_classes))
     # list of model accuracies for each round
-    test_accuracies = []
+    ensemble_test_accuracies = []
+    individual_test_accuracies = []
     
     # loop through weak learners to build the matrix
     for alpha, model in zip(alphas, weak_learners):
@@ -102,20 +108,22 @@ def testing_adaboost(weak_learners, alphas, X, y=None):
         # numpy to the rescue again
         rows_i = np.arange(n_samples)
         weak_learner_predictions[rows_i, y_pred - 1] += alpha
-        # also calculate the accuracy for this round
-        if y is not None:
-            test_accuracies.append(accuracy_score(y, y_pred))
 
-    # get the final predicted class for each test example
-    final_predictions = np.argmax(weak_learner_predictions, axis=1) + 1
+        # also calculate the accuracy for this round
+        if y_true is not None:
+            individual_test_accuracies.append(accuracy_score(y_true, y_pred))
+        
+        # get the ensemble predictions for this round and calculate the accuracy
+        ensemble_predictions = np.argmax(weak_learner_predictions, axis=1) + 1
+        if y_true is not None:
+            ensemble_test_accuracies.append(accuracy_score(y_true, ensemble_predictions))
 
     # if we have the true labels, calculate the final accuracy, otherwise just return the predictions
-    if y is not None:
-        final_accuracy = accuracy_score(y, final_predictions)
-        return final_accuracy, test_accuracies 
+    if y_true is not None:
+        return ensemble_test_accuracies, individual_test_accuracies
     else:
         # this is bad practice to have a function return two different types of output, but it will work for our purposes
-        return final_predictions
+        return ensemble_predictions
 
 
 
@@ -137,17 +145,17 @@ def base_model_predictions(X_train, y_train, X_test, y_test):
     return base_train_accuracy, base_test_accuracy
 
 
-def plot_metrics(train_accuracies, test_accuracies, base_train_accuracy, base_test_accuracy, final_accuracy):
+def plot_metrics(individual_train_accuracies, individual_test_accuracies, base_train_accuracy, base_test_accuracy, ensemble_test_accuracies):
     global num_rounds
     print("Plotting metrics...")
 
     plt.figure(figsize=(10, 6))
-    plt.plot(range(1, num_rounds + 1), train_accuracies, label='Weak Learners Train Accuracy')
-    plt.plot(range(1, num_rounds + 1), test_accuracies,  label='Weak Learners Test Accuracy')
-    plt.axhline(y=base_test_accuracy, color='r', linestyle='--',  label='Baseline (Logistic Regressioon) Test Accuracy')
-    plt.axhline(y=base_train_accuracy, color='g', linestyle='--', label='Baseline (Logistic Regressioon) Train Accuracy')
-    plt.axhline(y=final_accuracy, color='b', linestyle='--', label='AdaBoost Ensemble Final Accuracy')
-    plt.xlabel('Rounds')
+    plt.plot(range(1, num_rounds + 1), individual_train_accuracies, label='Weak Learners Train Accuracy')
+    plt.plot(range(1, num_rounds + 1), individual_test_accuracies,  label='Weak Learners Test Accuracy')
+    plt.plot(range(1, num_rounds + 1), ensemble_test_accuracies, label='Ensemble Test Accuracy')
+    plt.axhline(y=base_test_accuracy, color='r', linestyle='--',  label='Baseline (Logistic Regression) Test Accuracy')
+    plt.axhline(y=base_train_accuracy, color='g', linestyle='--', label='Baseline (Logistic Regression) Train Accuracy')
+    plt.xlabel('Round Number')
     plt.ylabel('Accuracy')
     plt.title('AdaBoost Accuracy vs. Number of Rounds')
     plt.legend()
@@ -187,17 +195,20 @@ def main():
     X_train, X_test, y_train, y_test, transformer = load_data(input_file, transformer)
 
     # Task 1: train the model
-    weak_learners, alphas, train_accuracies = training_adaboost(X_train, y_train, num_rounds)
+    weak_learners, alphas, individual_train_accuracies = training_adaboost(X_train, y_train, num_rounds)
     # test the model
-    final_accuracy, test_accuracies = testing_adaboost(weak_learners, alphas, X_test, y_test)
+    ensemble_test_accuracies, individual_test_accuracies = testing_adaboost(weak_learners, alphas, X_test, y_test)
 
     # Task 2: train and test the base model
     base_train_accuracy, base_test_accuracy = base_model_predictions(X_train, y_train, X_test, y_test)
 
     # Task 3: plot the training and testing accuracy over time
-    plot_metrics(train_accuracies, test_accuracies, base_train_accuracy, base_test_accuracy, final_accuracy)
+    plot_metrics(individual_train_accuracies, individual_test_accuracies, base_train_accuracy, base_test_accuracy, ensemble_test_accuracies)
 
     # Task 4
+    # After analyzing the plot, the weak learners become much less accurate after the first round.  This is expected behavior as the model focuses on the predictions that it got wrong by weighting those samples higher as time goes on.
+    # The ensemble model starts off at the same accuracy as the first weak learner, and then declines and plateaus as the weak learners become less accurate due to overfitting.  The outliers in the training data are likely causing the weak learners to become less accurate as they focus more and more on those outliers, which may not be representative of the overall data distribution.  The baseline model performs better than the ensemble model after a certain number of rounds, which suggests that the ensemble is overfitting to the training data and not generalizing well to the test data.
+    # I would like to see what happens if I were to use decision trees as the weak learners instead of logistic regression, as decision trees are more commonly used as weak learners in AdaBoost and may be less prone to overfitting in this case.
 
     # Task 5: Predict on the judge dataset
     predict_judge_data(transformer, weak_learners, alphas)
